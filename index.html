@@ -1,204 +1,153 @@
- 
-<!DOCTYPE html>
-<html lang="pl">
+ <!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gra z Joystickiem i Bluetooth</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #f0f0f0;
-        }
-        #gameContainer {
-            position: relative;
-            width: 80vw;
-            height: 80vh;
-            background-color: #fff;
-            border: 1px solid #ccc;
-        }
-        .player {
-            position: absolute;
-            width: 50px;
-            height: 50px;
-            background-color: red;
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 12px;
-            color: #fff;
-            text-align: center;
-            line-height: 1.2;
-        }
-        .multiplayer {
-            background-color: blue; /* Kolor graczy, którzy są połączeni */
-        }
-        #joystickContainer {
-            position: absolute;
-            left: 20px;
-            bottom: 20px;
-            width: 100px;
-            height: 100px;
-            background-color: rgba(0, 0, 0, 0.2);
-            border-radius: 50%;
-            touch-action: none; /* Disable default touch actions to prevent scrolling */
-        }
-        #thumb {
-            position: absolute;
-            width: 50px;
-            height: 50px;
-            background-color: rgba(0, 0, 0, 0.5);
-            border-radius: 50%;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none; /* Make thumb non-interactive to prevent touch events from being blocked */
-            transition: transform 0.1s ease-out; /* Smooth transition for thumb movement */
-        }
-        button {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            padding: 10px 20px;
-            font-size: 14px;
-            cursor: pointer;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC File Transfer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin-top: 50px;
+    }
+    input, button, textarea {
+      margin: 10px;
+      padding: 10px;
+    }
+    textarea {
+      width: 300px;
+      height: 100px;
+    }
+    #status {
+      margin-top: 20px;
+      color: green;
+    }
+  </style>
 </head>
 <body>
-    <div id="gameContainer">
-        <div id="player1" class="player"></div>
-        <div id="joystickContainer">
-            <div id="thumb"></div>
-        </div>
-    </div>
-    <button id="connectDevicesBtn">Connect Devices</button>
+  <h1>WebRTC File Transfer</h1>
+  <input type="text" id="myId" placeholder="Your ID">
+  <input type="text" id="peerId" placeholder="Peer ID">
+  <button id="connectButton">Connect</button>
+  <input type="file" id="fileInput">
+  <button id="sendFileButton">Send File</button>
+  <div id="status"></div>
+  <div id="fileContainer"></div>
 
-    <script>
-        const players = {}; // Obiekt przechowujący informacje o połączonych graczach
-        let playerIdCounter = 1; // Licznik ID graczy
-var player=document.getElementById('player1')
-        // Funkcja do dodawania nowego gracza do gry
-        function addPlayer(playerId) {
-            const playerElement = document.createElement('div');
-            playerElement.classList.add('player', 'multiplayer');
-            playerElement.textContent = `Player ${playerId}`;
-            playerElement.setAttribute('data-player-id', playerId);
-            document.getElementById('gameContainer').appendChild(playerElement);
-        }
+  <script>
+    const peerConnection = new RTCPeerConnection();
+    const dataChannel = peerConnection.createDataChannel("fileTransfer");
+    const myIdInput = document.getElementById("myId");
+    const peerIdInput = document.getElementById("peerId");
+    const connectButton = document.getElementById("connectButton");
+    const fileInput = document.getElementById("fileInput");
+    const sendFileButton = document.getElementById("sendFileButton");
+    const statusDiv = document.getElementById("status");
+    const fileContainer = document.getElementById("fileContainer");
 
-        // Funkcja do aktualizacji pozycji gracza w grze
-        function updatePlayerPosition(playerId, x, y) {
-            const playerElement = document.querySelector(`.player[data-player-id="${playerId}"]`);
-            if (playerElement) {
-                playerElement.style.left = `${x}px`;
-                playerElement.style.top = `${y}px`;
-            }
-        }
-let playerPosX = window.innerWidth / 2 - 25;
-let playerPosY = window.innerHeight / 2 - 25;
+    const peerIdMapping = {};
 
-const startDrag = (e) => {
-  const touch = e.touches ? e.touches[0] : e;
-  thumbStartX = touch.clientX - joystickContainer.offsetLeft;
-  thumbStartY = touch.clientY - joystickContainer.offsetTop;
-  moveThumb(touch.clientX, touch.clientY);
-};
+    peerConnection.onicecandidate = event => {
+      if (event.candidate) {
+        sendSignalingMessage({ 'candidate': event.candidate });
+      }
+    };
 
-const onDrag = (e) => {
-  const touch = e.touches ? e.touches[0] : e;
-  moveThumb(touch.clientX, touch.clientY);
+    peerConnection.ondatachannel = event => {
+      event.channel.onmessage = handleReceiveMessage;
+    };
 
-  const dx = touch.clientX - (joystickContainer.offsetLeft + joystickContainer.clientWidth / 2);
-  const dy = touch.clientY - (joystickContainer.offsetTop + joystickContainer.clientHeight / 2);
-  const distance = Math.min(Math.sqrt(dx * dx + dy * dy), joystickContainer.clientWidth / 2);
+    dataChannel.onopen = () => {
+      console.log("Data channel is open");
+    };
 
-  const angle = Math.atan2(dy, dx);
-  const limitedDx = distance * Math.cos(angle);
-  const limitedDy = distance * Math.sin(angle);
+    dataChannel.onclose = () => {
+      console.log("Data channel is closed");
+    };
 
-  playerPosX += limitedDx / 10;
-  playerPosY += limitedDy / 10;
-  player.style.left = `${playerPosX}px`;
-player.style.top = `${playerPosY}px`;
-  updatePlayerPosition(player, playerPosX, playerPosY)
-};
+    connectButton.addEventListener("click", async () => {
+      const myId = myIdInput.value;
+      const peerId = peerIdInput.value;
 
-const endDrag = () => {
-  resetThumbPosition();
-};
+      if (!myId || !peerId) {
+        alert("Enter both your ID and peer ID!");
+        return;
+      }
 
-const moveThumb = (clientX, clientY) => {
-  const rect = joystickContainer.getBoundingClientRect();
-  const centerX = rect.left + rect.width / 2;
-  const centerY = rect.top + rect.height / 2;
+      peerIdMapping[myId] = peerId;
 
-  const dx = clientX - centerX;
-  const dy = clientY - centerY;
-  const angle = Math.atan2(dy, dx);
+      if (peerId === "host") {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        sendSignalingMessage({ 'sdp': offer });
+      }
+    });
 
-  const maxDistance = joystickContainer.clientWidth / 2;
-  const limitedDistance = Math.min(Math.sqrt(dx * dx + dy * dy), maxDistance);
+    sendFileButton.addEventListener("click", () => {
+      const file = fileInput.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = event => {
+          dataChannel.send(JSON.stringify({ type: 'file', data: event.target.result, name: file.name }));
+          displayFile(file.name, event.target.result);
+          statusDiv.textContent = "File sent!";
+        };
+        reader.readAsDataURL(file);
+      } else {
+        alert("Choose a file first!");
+      }
+    });
 
-  const thumbX = centerX + limitedDistance * Math.cos(angle);
-  const thumbY = centerY + limitedDistance * Math.sin(angle);
+    function displayFile(name, data) {
+      const fileDiv = document.createElement("div");
+      fileDiv.textContent = `File: ${name}`;
+      const link = document.createElement("a");
+      link.href = data;
+      link.textContent = "Done";
+      link.onclick = () => {
+        dataChannel.send(JSON.stringify({ type: 'done', name }));
+        statusDiv.textContent = `${name} marked as done!`;
+      };
+      fileDiv.appendChild(link);
+      fileContainer.appendChild(fileDiv);
+    }
 
-  thumb.style.transform = `translate(${thumbX - centerX}px, ${thumbY - centerY}px)`;
-};
-
-const resetThumbPosition = () => {
-  thumb.style.transform = 'translate(-50%, -50%)';
-};
-
-joystickContainer.addEventListener('touchstart', startDrag);
-window.addEventListener('touchmove', onDrag);
-window.addEventListener('touchend', endDrag);
-        // Obsługa kliknięcia przycisku "Connect Devices"
-        document.getElementById('connectDevicesBtn').addEventListener('click', async () => {
-            try {
-                const device = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: ['battery_service'] // Przykładowe usługi Bluetooth do wyszukiwania
-                });
-                console.log('Znaleziono urządzenie Bluetooth:', device);
-
-                const bluetoothServer = await device.gatt.connect();
-                console.log('Połączono z urządzeniem Bluetooth:', device);
-
-                // Uzyskanie usługi (na przykład usługa do przesyłania danych pozycji graczy)
-                const service = await bluetoothServer.getPrimaryService('some_service_uuid');
-
-                // Uzyskanie charakterystyki do odbierania danych (np. pozycji graczy)
-                const characteristic = await service.getCharacteristic('some_characteristic_uuid');
-
-                // Ustawienie nasłuchiwania na zmiany wartości charakterystyki (np. pozycja graczy)
-                characteristic.addEventListener('characteristicvaluechanged', (event) => {
-                    const data = event.target.value;
-                    // Przykładowe przetwarzanie danych otrzymanych przez Bluetooth
-                    const playerId = data.getUint8(0); // Załóżmy, że pierwszy bajt to ID gracza
-                    const x = data.getInt16(1, true); // Drugi i trzeci bajt to pozycja X (little-endian)
-                    const y = data.getInt16(3, true); // Czwarty i piąty bajt to pozycja Y (little-endian)
-                    updatePlayerPosition(playerId, x, y);
-                });
-
-                // Uruchomienie nasłuchiwania na zmiany wartości charakterystyki
-                await characteristic.startNotifications();
-
-                // Dodanie gracza do listy podłączonych graczy
-                players[playerIdCounter] = characteristic;
-                addPlayer(playerIdCounter);
-                playerIdCounter++;
-
-            } catch (error) {
-                console.error('Błąd podczas wyszukiwania i łączenia z urządzeniem Bluetooth:', error);
-            }
+    function handleReceiveMessage(event) {
+      const message = JSON.parse(event.data);
+      if (message.type === 'file') {
+        displayFile(message.name, message.data);
+        statusDiv.textContent = "File received!";
+      } else if (message.type === 'done') {
+        const fileDivs = fileContainer.querySelectorAll("div");
+        fileDivs.forEach(div => {
+          if (div.textContent.includes(message.name)) {
+            div.querySelector("a").textContent = "Done (Received)";
+          }
         });
-    </script>
+      }
+    }
+
+    function sendSignalingMessage(message) {
+      const peerId = peerIdInput.value;
+      if (peerIdMapping[peerId]) {
+        const encodedMessage = btoa(JSON.stringify(message));
+        peerIdMapping[peerId] = encodedMessage;
+      }
+    }
+
+    async function receiveSignalingMessage(message) {
+      message = JSON.parse(atob(message));
+      if (message.sdp) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.sdp));
+        if (message.sdp.type === "offer") {
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          sendSignalingMessage({ 'sdp': answer });
+        }
+      } else if (message.candidate) {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+      }
+    }
+  </script>
 </body>
 </html>
